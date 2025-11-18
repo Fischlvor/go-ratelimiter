@@ -1,0 +1,124 @@
+# 限流配置示例
+
+# 默认配置
+default:
+  # 默认限流算法: fixed_window | sliding_window | token_bucket
+  algorithm: fixed_window
+  # 是否启用限流
+  enabled: true
+
+# 全局限流（可选）
+global:
+  # 限流阈值（请求数）
+  limit: 1000
+  # 时间窗口（支持: s秒, m分钟, h小时）
+  window: 60s
+  # 算法（可选，不指定则使用默认算法）
+  algorithm: fixed_window
+
+# 限流规则列表（按顺序匹配）
+rules:
+  # 登录接口 - 严格限流，防止暴力破解
+  - name: "登录限流"
+    path: /api/auth/login
+    method: POST
+    by: ip                    # 限流维度: ip | user | path | global
+    algorithm: sliding_window # 使用滑动窗口，更精确
+    limit: 5                  # 每分钟最多5次
+    window: 60s
+
+  # 注册接口 - 防止恶意注册
+  - name: "注册限流"
+    path: /api/auth/register
+    method: POST
+    by: ip
+    algorithm: sliding_window
+    limit: 3
+    window: 300s              # 5分钟3次
+
+  # 验证码接口 - 防止刷验证码
+  - name: "验证码限流"
+    path: /api/base/captcha
+    method: GET
+    by: ip
+    limit: 10
+    window: 60s
+
+  # 发送邮件验证码 - 严格限制
+  - name: "邮件验证码限流"
+    path: /api/auth/sendEmailVerificationCode
+    method: POST
+    by: ip
+    algorithm: sliding_window
+    limit: 3
+    window: 300s
+
+  # 密码重置 - 防止滥用
+  - name: "密码重置限流"
+    path: /api/auth/forgotPassword
+    method: POST
+    by: ip
+    limit: 3
+    window: 3600s             # 1小时3次
+
+  # 用户API - 按用户限流
+  - name: "用户API限流"
+    path: /api/user/*
+    by: user                  # 按用户限流
+    limit: 100
+    window: 60s
+
+  # 文章列表 - 按IP限流
+  - name: "文章列表限流"
+    path: /api/article/list
+    method: GET
+    by: ip
+    limit: 60
+    window: 60s
+
+  # 文章搜索 - 消耗资源大，严格限制
+  - name: "文章搜索限流"
+    path: /api/article/search
+    method: GET
+    by: ip
+    algorithm: sliding_window
+    limit: 20
+    window: 60s
+
+  # 上传接口 - 使用令牌桶，允许突发
+  - name: "上传限流"
+    path: /api/upload/*
+    method: POST
+    by: user
+    algorithm: token_bucket
+    capacity: 10              # 桶容量10个令牌
+    rate: 1/s                 # 每秒生成1个令牌
+
+  # 评论发布 - 防止刷评论
+  - name: "评论限流"
+    path: /api/comment/add
+    method: POST
+    by: user
+    algorithm: sliding_window
+    limit: 10
+    window: 300s              # 5分钟10条
+
+  # OAuth回调 - 防止滥用
+  - name: "OAuth回调限流"
+    path: /api/auth/oauth/*/callback
+    by: ip
+    limit: 10
+    window: 60s
+
+# 白名单配置
+whitelist:
+  # IP白名单（这些IP不受限流限制）
+  ips:
+    - 127.0.0.1
+    - ::1
+    # - 192.168.1.100
+
+  # 用户白名单（这些用户不受限流限制）
+  users:
+    # - admin-user-uuid
+    # - trusted-user-uuid
