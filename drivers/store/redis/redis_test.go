@@ -12,8 +12,9 @@ import (
 
 func setupTestRedis(t *testing.T) *redis.Client {
 	client := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-		DB:   15, // 使用DB 15进行测试
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       15, // 使用DB 15进行测试，避免影响生产数据
 	})
 
 	// 测试连接
@@ -27,9 +28,18 @@ func setupTestRedis(t *testing.T) *redis.Client {
 	return client
 }
 
+// cleanupTestRedis 清理测试数据
+func cleanupTestRedis(t *testing.T, client *redis.Client) {
+	// 清空测试数据库
+	if err := client.FlushDB().Err(); err != nil {
+		t.Logf("清理Redis数据失败: %v", err)
+	}
+	client.Close()
+}
+
 func TestRedisStore_IncrAndGet(t *testing.T) {
 	client := setupTestRedis(t)
-	defer client.Close()
+	defer cleanupTestRedis(t, client)
 
 	store := NewStore(client, "test")
 
@@ -65,7 +75,7 @@ func TestRedisStore_IncrAndGet(t *testing.T) {
 
 func TestRedisStore_IncrBy(t *testing.T) {
 	client := setupTestRedis(t)
-	defer client.Close()
+	defer cleanupTestRedis(t, client)
 
 	store := NewStore(client, "test")
 
@@ -92,7 +102,7 @@ func TestRedisStore_IncrBy(t *testing.T) {
 
 func TestRedisStore_ExpireAndTTL(t *testing.T) {
 	client := setupTestRedis(t)
-	defer client.Close()
+	defer cleanupTestRedis(t, client)
 
 	store := NewStore(client, "test")
 
@@ -122,7 +132,7 @@ func TestRedisStore_ExpireAndTTL(t *testing.T) {
 
 func TestRedisStore_ZSetOperations(t *testing.T) {
 	client := setupTestRedis(t)
-	defer client.Close()
+	defer cleanupTestRedis(t, client)
 
 	store := NewStore(client, "test")
 
@@ -171,7 +181,7 @@ func TestRedisStore_ZSetOperations(t *testing.T) {
 
 func TestRedisStore_Prefix(t *testing.T) {
 	client := setupTestRedis(t)
-	defer client.Close()
+	defer cleanupTestRedis(t, client)
 
 	store := NewStore(client, "myapp")
 
@@ -201,7 +211,7 @@ func TestRedisStore_Prefix(t *testing.T) {
 
 func TestRedisStore_Eval(t *testing.T) {
 	client := setupTestRedis(t)
-	defer client.Close()
+	defer cleanupTestRedis(t, client)
 
 	store := NewStore(client, "test")
 
