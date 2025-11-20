@@ -128,58 +128,6 @@ func TestTokenBucketLimiter_Reset(t *testing.T) {
 	t.Logf("Reset时间: %d, RetryAfter: %d", result.Reset, result.RetryAfter)
 }
 
-// MockStoreWithEval 支持Eval的模拟存储
-type MockStoreWithEval struct {
-	data map[string]int64
-}
-
-func (m *MockStoreWithEval) Get(key string) (int64, error) {
-	return m.data[key], nil
-}
-
-func (m *MockStoreWithEval) Incr(key string) (int64, error) {
-	m.data[key]++
-	return m.data[key], nil
-}
-
-func (m *MockStoreWithEval) IncrBy(key string, value int64) (int64, error) {
-	m.data[key] += value
-	return m.data[key], nil
-}
-
-func (m *MockStoreWithEval) Expire(key string, expiration time.Duration) error {
-	return nil
-}
-
-func (m *MockStoreWithEval) TTL(key string) (time.Duration, error) {
-	return time.Minute, nil
-}
-
-func (m *MockStoreWithEval) ZAdd(key string, score float64, member string) error {
-	return nil
-}
-
-func (m *MockStoreWithEval) ZRemRangeByScore(key string, min, max float64) error {
-	return nil
-}
-
-func (m *MockStoreWithEval) ZCount(key string, min, max float64) (int64, error) {
-	return 0, nil
-}
-
-func (m *MockStoreWithEval) Eval(script string, keys []string, args ...interface{}) (interface{}, error) {
-	// 模拟令牌桶Lua脚本的返回值
-	// 返回格式: [allowed(0/1), remaining, capacity]
-	// capacity参数在args[0]中
-	capacity := int64(10)
-	if len(args) > 0 {
-		if cap, ok := args[0].(int64); ok {
-			capacity = cap
-		}
-	}
-	return []interface{}{int64(1), capacity - 1, capacity}, nil
-}
-
 func BenchmarkTokenBucketLimiter_Allow(b *testing.B) {
 	store := &MockStoreWithEval{
 		data: make(map[string]int64),

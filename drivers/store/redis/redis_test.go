@@ -12,7 +12,7 @@ import (
 
 func setupTestRedis(t *testing.T) *redis.Client {
 	client := redis.NewClient(&redis.Options{
-		Addr:     "8.148.64.96:16379",
+		Addr:     "localhost:6379",
 		Password: "",
 		DB:       15, // 使用DB 15进行测试，避免影响生产数据
 	})
@@ -257,5 +257,44 @@ func BenchmarkRedisStore_Incr(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// TestRedisStore_SetAndDel 测试Set和Del方法
+func TestRedisStore_SetAndDel(t *testing.T) {
+	client := setupTestRedis(t)
+	defer cleanupTestRedis(t, client)
+
+	store := NewStore(client, "test")
+	key := "testkey"
+
+	// 测试Set
+	err := store.Set(key, 42)
+	if err != nil {
+		t.Fatalf("Set失败: %v", err)
+	}
+
+	// 验证Set成功
+	val, err := store.Get(key)
+	if err != nil {
+		t.Fatalf("Get失败: %v", err)
+	}
+	if val != 42 {
+		t.Errorf("期望值42，实际%d", val)
+	}
+
+	// 测试Del
+	err = store.Del(key)
+	if err != nil {
+		t.Fatalf("Del失败: %v", err)
+	}
+
+	// 验证Del成功
+	val, err = store.Get(key)
+	if err != nil {
+		t.Fatalf("Get失败: %v", err)
+	}
+	if val != 0 {
+		t.Errorf("期望值0（已删除），实际%d", val)
 	}
 }

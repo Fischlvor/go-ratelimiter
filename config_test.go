@@ -355,3 +355,127 @@ func TestRuleConfigValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestIsValidLimitBy 测试限流维度验证
+func TestIsValidLimitBy(t *testing.T) {
+	tests := []struct {
+		name  string
+		by    string
+		valid bool
+	}{
+		{"IP限流", "ip", true},
+		{"用户限流", "user", true},
+		{"路径限流", "path", true},
+		{"全局限流", "global", true},
+		{"自定义限流", "custom", true},
+		{"无效维度", "invalid", false},
+		{"空字符串", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isValidLimitBy(tt.by)
+			if got != tt.valid {
+				t.Errorf("isValidLimitBy(%q) = %v, want %v", tt.by, got, tt.valid)
+			}
+		})
+	}
+}
+
+// TestParseRate 测试速率解析
+func TestParseRate(t *testing.T) {
+	tests := []struct {
+		name    string
+		rate    string
+		want    float64
+		wantErr bool
+	}{
+		{"每秒1个", "1/s", 1.0, false},
+		{"每秒10个", "10/s", 10.0, false},
+		{"每分钟60个", "60/m", 1.0, false},
+		{"每小时3600个", "3600/h", 1.0, false},
+		{"无效格式", "invalid", 0, true},
+		{"无效单位", "1/x", 0, true},
+		{"空字符串", "", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseRate(tt.rate)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseRate(%q) error = %v, wantErr %v", tt.rate, err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("parseRate(%q) = %v, want %v", tt.rate, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestToRule 测试规则配置转换
+func TestToRule(t *testing.T) {
+	tests := []struct {
+		name      string
+		ruleConf  RuleConfig
+		wantError bool
+	}{
+		{
+			name: "有效的固定窗口规则",
+			ruleConf: RuleConfig{
+				Name:      "test",
+				Path:      "/api/test",
+				Algorithm: "fixed_window",
+				Limit:     10,
+				Window:    "1m",
+				By:        "ip",
+			},
+			wantError: false,
+		},
+		{
+			name: "有效的令牌桶规则",
+			ruleConf: RuleConfig{
+				Name:      "test",
+				Path:      "/api/test",
+				Algorithm: "token_bucket",
+				Capacity:  100,
+				Rate:      "10/s",
+				By:        "user",
+			},
+			wantError: false,
+		},
+		{
+			name: "无效的时间窗口",
+			ruleConf: RuleConfig{
+				Name:      "test",
+				Path:      "/api/test",
+				Algorithm: "fixed_window",
+				Limit:     10,
+				Window:    "invalid",
+				By:        "ip",
+			},
+			wantError: true,
+		},
+		{
+			name: "无效的速率格式",
+			ruleConf: RuleConfig{
+				Name:      "test",
+				Path:      "/api/test",
+				Algorithm: "token_bucket",
+				Capacity:  100,
+				Rate:      "invalid",
+				By:        "user",
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.ruleConf.ToRule(AlgorithmFixedWindow)
+			if (err != nil) != tt.wantError {
+				t.Errorf("ToRule() error = %v, wantError %v", err, tt.wantError)
+			}
+		})
+	}
+}
