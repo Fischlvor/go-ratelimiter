@@ -36,12 +36,12 @@ type DefaultConfig struct {
 
 // GlobalConfig 全局限流配置
 type GlobalConfig struct {
-	// Limit 限流阈值
-	Limit int64 `yaml:"limit"`
-	// Window 时间窗口（如：60s, 1m, 1h）
-	Window string `yaml:"window"`
 	// Algorithm 算法（可选，不指定则使用默认算法）
 	Algorithm string `yaml:"algorithm"`
+	// Params 算法参数数组
+	// - fixed_window/sliding_window: [limit, window]  例如: ["1000", "60s"]
+	// - token_bucket: [capacity, rate]  例如: ["10", "1/s"]
+	Params []string `yaml:"params"`
 }
 
 // RuleConfig 规则配置
@@ -56,14 +56,14 @@ type RuleConfig struct {
 	By string `yaml:"by"`
 	// Algorithm 限流算法（fixed_window/sliding_window/token_bucket）
 	Algorithm string `yaml:"algorithm"`
-	// Limit 限流阈值（请求数）
-	Limit int64 `yaml:"limit"`
-	// Window 时间窗口（如：60s, 1m, 1h）
-	Window string `yaml:"window"`
-	// Capacity 令牌桶容量（仅token_bucket算法使用）
-	Capacity int64 `yaml:"capacity"`
-	// Rate 令牌生成速率（如：1/s, 10/m）
-	Rate string `yaml:"rate"`
+	// Params 算法参数数组
+	// - fixed_window/sliding_window: [limit, window]  例如: ["5", "60s"]
+	// - token_bucket: [capacity, rate]  例如: ["10", "1/s"]
+	Params []string `yaml:"params"`
+	// RecordViolation 是否记录违规（用于自动拉黑）
+	RecordViolation bool `yaml:"record_violation"`
+	// ViolationWeight 违规权重（默认1，用于分级违规记录）
+	ViolationWeight int `yaml:"violation_weight"`
 }
 
 // WhitelistConfig 白名单配置
@@ -132,14 +132,39 @@ func validateConfig(config *Config) error {
 
 	// 验证全局配置
 	if config.Global != nil {
-		if config.Global.Limit <= 0 {
-			return fmt.Errorf("全局限流阈值必须大于0")
+		algo := config.Global.Algorithm
+		if algo == "" {
+			algo = config.Default.Algorithm
 		}
-		if _, err := parseDuration(config.Global.Window); err != nil {
-			return fmt.Errorf("无效的全局时间窗口: %s", config.Global.Window)
+		if !isValidAlgorithm(algo) {
+			return fmt.Errorf("无效的全局算法: %s", algo)
 		}
-		if config.Global.Algorithm != "" && !isValidAlgorithm(config.Global.Algorithm) {
-			return fmt.Errorf("无效的全局算法: %s", config.Global.Algorithm)
+
+		// 验证params数组
+		if len(config.Global.Params) < 2 {
+			return fmt.Errorf("全局限流params数组至少需要2个元素")
+		}
+
+		if algo == string(AlgorithmTokenBucket) {
+			// params[0]=capacity, params[1]=rate
+			if _, err := parseInt64(config.Global.Params[0]); err != nil {
+				return fmt.Errorf("无效的全局capacity: %s", config.Global.Params[0])
+			}
+			if _, err := parseRate(config.Global.Params[1]); err != nil {
+				return fmt.Errorf("无效的全局rate: %s", config.Global.Params[1])
+			}
+		} else {
+			// params[0]=limit, params[1]=window
+			limit, err := parseInt64(config.Global.Params[0])
+			if err != nil {
+				return fmt.Errorf("无效的全局limit: %s", config.Global.Params[0])
+			}
+			if limit <= 0 {
+				return fmt.Errorf("全局限流阈值必须大于0")
+			}
+			if _, err := parseDuration(config.Global.Params[1]); err != nil {
+				return fmt.Errorf("无效的全局window: %s", config.Global.Params[1])
+			}
 		}
 	}
 
@@ -164,24 +189,30 @@ func validateConfig(config *Config) error {
 			return fmt.Errorf("规则[%d]无效的算法: %s", i, algo)
 		}
 
-		// 验证令牌桶特有参数
+		// 验证params数组
+		if len(rule.Params) < 2 {
+			return fmt.Errorf("规则[%d]params数组至少需要2个元素", i)
+		}
+
 		if algo == string(AlgorithmTokenBucket) {
-			if rule.Capacity <= 0 {
-				return fmt.Errorf("规则[%d]令牌桶算法需要指定capacity", i)
+			// params[0]=capacity, params[1]=rate
+			if _, err := parseInt64(rule.Params[0]); err != nil {
+				return fmt.Errorf("规则[%d]无效的capacity: %s", i, rule.Params[0])
 			}
-			if rule.Rate == "" {
-				return fmt.Errorf("规则[%d]令牌桶算法需要指定rate", i)
-			}
-			if _, err := parseRate(rule.Rate); err != nil {
-				return fmt.Errorf("规则[%d]无效的rate: %s", i, rule.Rate)
+			if _, err := parseRate(rule.Params[1]); err != nil {
+				return fmt.Errorf("规则[%d]无效的rate: %s", i, rule.Params[1])
 			}
 		} else {
-			// 其他算法验证limit和window
-			if rule.Limit <= 0 {
+			// params[0]=limit, params[1]=window
+			limit, err := parseInt64(rule.Params[0])
+			if err != nil {
+				return fmt.Errorf("规则[%d]无效的limit: %s", i, rule.Params[0])
+			}
+			if limit <= 0 {
 				return fmt.Errorf("规则[%d]限流阈值必须大于0", i)
 			}
-			if _, err := parseDuration(rule.Window); err != nil {
-				return fmt.Errorf("规则[%d]无效的时间窗口: %s", i, rule.Window)
+			if _, err := parseDuration(rule.Params[1]); err != nil {
+				return fmt.Errorf("规则[%d]无效的window: %s", i, rule.Params[1])
 			}
 		}
 	}
@@ -242,37 +273,75 @@ func parseRate(s string) (float64, error) {
 	return count / duration.Seconds(), nil
 }
 
+// setAlgorithmParams 根据算法设置Rule的参数（从params数组解析）
+func setAlgorithmParams(rule *Rule, algo Algorithm, params []string) error {
+	rule.Algorithm = algo
+
+	if len(params) < 2 {
+		return fmt.Errorf("params数组至少需要2个元素")
+	}
+
+	if algo == AlgorithmTokenBucket {
+		// 令牌桶算法: [capacity, rate]
+		cap, err := parseInt64(params[0])
+		if err != nil {
+			return fmt.Errorf("解析capacity失败: %w", err)
+		}
+		rule.Capacity = cap
+
+		rateValue, err := parseRate(params[1])
+		if err != nil {
+			return fmt.Errorf("解析rate失败: %w", err)
+		}
+		rule.Rate = rateValue
+	} else {
+		// 固定窗口或滑动窗口算法: [limit, window]
+		lim, err := parseInt64(params[0])
+		if err != nil {
+			return fmt.Errorf("解析limit失败: %w", err)
+		}
+		rule.Limit = lim
+
+		windowDuration, err := parseDuration(params[1])
+		if err != nil {
+			return fmt.Errorf("解析window失败: %w", err)
+		}
+		rule.Window = windowDuration
+	}
+
+	return nil
+}
+
+// parseInt64 解析字符串为int64
+func parseInt64(s string) (int64, error) {
+	var val int64
+	_, err := fmt.Sscanf(s, "%d", &val)
+	if err != nil {
+		return 0, fmt.Errorf("无效的数值: %s", s)
+	}
+	return val, nil
+}
+
 // ToRule 将配置规则转换为内部规则
 func (rc *RuleConfig) ToRule(defaultAlgo Algorithm) (*Rule, error) {
 	rule := &Rule{
-		Name:   rc.Name,
-		Path:   rc.Path,
-		Method: strings.ToUpper(rc.Method),
-		By:     LimitBy(rc.By),
-		Limit:  rc.Limit,
+		Name:            rc.Name,
+		Path:            rc.Path,
+		Method:          strings.ToUpper(rc.Method),
+		By:              LimitBy(rc.By),
+		RecordViolation: rc.RecordViolation,
+		ViolationWeight: rc.ViolationWeight,
 	}
 
-	// 设置算法
-	if rc.Algorithm != "" {
-		rule.Algorithm = Algorithm(rc.Algorithm)
-	} else {
-		rule.Algorithm = defaultAlgo
+	// 确定使用的算法
+	algo := Algorithm(rc.Algorithm)
+	if algo == "" {
+		algo = defaultAlgo
 	}
 
-	// 根据算法设置参数
-	if rule.Algorithm == AlgorithmTokenBucket {
-		rule.Capacity = rc.Capacity
-		rate, err := parseRate(rc.Rate)
-		if err != nil {
-			return nil, err
-		}
-		rule.Rate = rate
-	} else {
-		window, err := parseDuration(rc.Window)
-		if err != nil {
-			return nil, err
-		}
-		rule.Window = window
+	// 设置算法参数
+	if err := setAlgorithmParams(rule, algo, rc.Params); err != nil {
+		return nil, err
 	}
 
 	return rule, nil
