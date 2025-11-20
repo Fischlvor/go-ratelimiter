@@ -70,6 +70,10 @@ type Rule struct {
 type Store interface {
 	// Get 获取键的值
 	Get(key string) (int64, error)
+	// Set 设置键的值
+	Set(key string, value int64) error
+	// Del 删除键
+	Del(key string) error
 	// Incr 增加键的值
 	Incr(key string) (int64, error)
 	// IncrBy 增加键的值指定数量

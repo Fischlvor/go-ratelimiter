@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,5 +259,28 @@ func BenchmarkMiddleware(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		r.ServeHTTP(w, req)
+	}
+}
+
+// TestDefaultErrorHandler 测试默认错误处理器
+func TestDefaultErrorHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	// 调用DefaultErrorHandler
+	testErr := fmt.Errorf("test error")
+	DefaultErrorHandler(c, testErr)
+
+	// 验证响应
+	if w.Code != 500 {
+		t.Errorf("期望状态码 500，实际 %d", w.Code)
+	}
+
+	// 验证响应体包含错误信息
+	body := w.Body.String()
+	if !strings.Contains(body, "限流检查失败") {
+		t.Errorf("期望响应包含'限流检查失败'，实际: %s", body)
 	}
 }

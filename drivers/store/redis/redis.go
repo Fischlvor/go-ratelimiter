@@ -42,6 +42,16 @@ func (s *Store) Get(key string) (int64, error) {
 	return strconv.ParseInt(val, 10, 64)
 }
 
+// Set 设置键的值
+func (s *Store) Set(key string, value int64) error {
+	return s.client.Set(s.key(key), value, 0).Err()
+}
+
+// Del 删除键
+func (s *Store) Del(key string) error {
+	return s.client.Del(s.key(key)).Err()
+}
+
 // Incr 递增
 func (s *Store) Incr(key string) (int64, error) {
 	return s.client.Incr(s.key(key)).Result()

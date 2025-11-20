@@ -20,6 +20,10 @@ type Config struct {
 	Rules []RuleConfig `yaml:"rules"`
 	// Whitelist 白名单配置
 	Whitelist WhitelistConfig `yaml:"whitelist"`
+	// Blacklist 黑名单配置
+	Blacklist BlacklistConfig `yaml:"blacklist"`
+	// AutoBan 自动拉黑配置
+	AutoBan AutoBanConfig `yaml:"auto_ban"`
 }
 
 // DefaultConfig 默认配置
@@ -68,6 +72,28 @@ type WhitelistConfig struct {
 	IPs []string `yaml:"ips"`
 	// Users 用户白名单
 	Users []string `yaml:"users"`
+}
+
+// BlacklistConfig 黑名单配置
+type BlacklistConfig struct {
+	// IPs IP黑名单
+	IPs []string `yaml:"ips"`
+	// Users 用户黑名单
+	Users []string `yaml:"users"`
+}
+
+// AutoBanConfig 自动拉黑配置
+type AutoBanConfig struct {
+	// Enabled 是否启用自动拉黑
+	Enabled bool `yaml:"enabled"`
+	// Dimensions 拉黑维度（ip/user）
+	Dimensions []string `yaml:"dimensions"`
+	// ViolationThreshold 违规次数阈值
+	ViolationThreshold int64 `yaml:"violation_threshold"`
+	// ViolationWindow 违规统计时间窗口（如：5m, 10m）
+	ViolationWindow string `yaml:"violation_window"`
+	// BanDuration 封禁时长（如：1h, 24h）
+	BanDuration string `yaml:"ban_duration"`
 }
 
 // LoadConfig 从文件加载配置
