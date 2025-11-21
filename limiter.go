@@ -236,9 +236,18 @@ func (l *Limiter) Check(path, method, ip, userID string) (*Result, error) {
 			}
 			return result, nil
 		}
+
+		// 匹配到规则且通过，返回该规则的限流信息
+		return result, nil
 	}
 
-	// 所有检查都通过
+	// 没有匹配到任何规则，返回全局限流信息
+	// 会根据是否有 userID 自动选择维度（user 或 ip）
+	if l.globalRule != nil {
+		return l.checkRule(l.globalRule, path, method, ip, userID)
+	}
+
+	// 没有全局限流配置，返回默认允许
 	return &Result{Allowed: true}, nil
 }
 
