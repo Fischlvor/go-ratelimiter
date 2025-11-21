@@ -64,6 +64,10 @@ type Rule struct {
 	Capacity int64
 	// Rate 令牌生成速率（每秒生成的令牌数，仅token_bucket算法使用）
 	Rate float64
+	// RecordViolation 是否记录违规（用于自动拉黑）
+	RecordViolation bool
+	// ViolationWeight 违规权重（默认1，用于分级违规记录）
+	ViolationWeight int
 }
 
 // Store 存储接口

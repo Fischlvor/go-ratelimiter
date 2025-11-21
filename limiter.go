@@ -111,18 +111,19 @@ func NewFromConfig(config *Config, store Store) (*Limiter, error) {
 			algo = limiter.defaultAlgorithm
 		}
 
-		window, err := parseDuration(config.Global.Window)
-		if err != nil {
-			return nil, fmt.Errorf("解析全局窗口失败: %w", err)
+		limiter.globalRule = &Rule{
+			Name: "全局限流",
+			Path: "*",
+			By:   LimitByGlobal,
 		}
 
-		limiter.globalRule = &Rule{
-			Name:      "全局限流",
-			Path:      "*",
-			By:        LimitByGlobal,
-			Algorithm: algo,
-			Limit:     config.Global.Limit,
-			Window:    window,
+		// 设置算法参数
+		if err := setAlgorithmParams(
+			limiter.globalRule,
+			algo,
+			config.Global.Params,
+		); err != nil {
+			return nil, fmt.Errorf("设置全局规则参数失败: %w", err)
 		}
 	}
 
@@ -199,10 +200,7 @@ func (l *Limiter) Check(path, method, ip, userID string) (*Result, error) {
 			return nil, err
 		}
 		if !result.Allowed {
-			// 记录违规
-			if err := l.recordViolation(ip, userID); err != nil {
-				return nil, fmt.Errorf("记录违规失败: %w", err)
-			}
+			// 全局限流不记录违规（因为不是用户/IP的问题）
 			return result, nil
 		}
 	}
@@ -225,10 +223,16 @@ func (l *Limiter) Check(path, method, ip, userID string) (*Result, error) {
 			return nil, err
 		}
 
-		// 如果被限流，记录违规并返回
+		// 如果被限流，根据规则配置决定是否记录违规
 		if !result.Allowed {
-			if err := l.recordViolation(ip, userID); err != nil {
-				return nil, fmt.Errorf("记录违规失败: %w", err)
+			if rule.RecordViolation {
+				weight := rule.ViolationWeight
+				if weight <= 0 {
+					weight = 1 // 默认权重为1
+				}
+				if err := l.recordViolationWithWeight(ip, userID, weight); err != nil {
+					return nil, fmt.Errorf("记录违规失败: %w", err)
+				}
 			}
 			return result, nil
 		}
@@ -369,22 +373,31 @@ func (l *Limiter) isBlacklisted(ip, userID string) (bool, error) {
 	return false, nil
 }
 
-// recordViolation 记录违规并检查是否需要自动拉黑
+// recordViolation 记录违规并检查是否需要自动拉黑（权重为1）
 func (l *Limiter) recordViolation(ip, userID string) error {
+	return l.recordViolationWithWeight(ip, userID, 1)
+}
+
+// recordViolationWithWeight 记录违规并检查是否需要自动拉黑（带权重）
+func (l *Limiter) recordViolationWithWeight(ip, userID string, weight int) error {
 	if !l.autoBanEnabled {
 		return nil
 	}
 
+	if weight <= 0 {
+		weight = 1
+	}
+
 	// 记录IP违规
 	if ip != "" && l.autoBanDimensions["ip"] {
-		if err := l.checkAndBan("ip", ip); err != nil {
+		if err := l.checkAndBanWithWeight("ip", ip, weight); err != nil {
 			return err
 		}
 	}
 
 	// 记录用户违规
 	if userID != "" && l.autoBanDimensions["user"] {
-		if err := l.checkAndBan("user", userID); err != nil {
+		if err := l.checkAndBanWithWeight("user", userID, weight); err != nil {
 			return err
 		}
 	}
@@ -392,19 +405,28 @@ func (l *Limiter) recordViolation(ip, userID string) error {
 	return nil
 }
 
-// checkAndBan 检查违规次数并自动拉黑
+// checkAndBan 检查违规次数并自动拉黑（权重为1）
 func (l *Limiter) checkAndBan(dimension, identifier string) error {
+	return l.checkAndBanWithWeight(dimension, identifier, 1)
+}
+
+// checkAndBanWithWeight 检查违规次数并自动拉黑（带权重）
+func (l *Limiter) checkAndBanWithWeight(dimension, identifier string, weight int) error {
 	violationKey := fmt.Sprintf("violation:%s:%s", dimension, identifier)
 	blacklistKey := fmt.Sprintf("blacklist:%s:%s", dimension, identifier)
 
-	// 增加违规计数
-	count, err := l.store.Incr(violationKey)
+	if weight <= 0 {
+		weight = 1
+	}
+
+	// 增加违规计数（按权重）
+	count, err := l.store.IncrBy(violationKey, int64(weight))
 	if err != nil {
 		return err
 	}
 
-	// 设置违规记录过期时间
-	if count == 1 {
+	// 设置违规记录过期时间（第一次记录时）
+	if count == int64(weight) {
 		if err := l.store.Expire(violationKey, l.violationWindow); err != nil {
 			return err
 		}

@@ -121,8 +121,7 @@ func TestNewFromFile(t *testing.T) {
 rules:
   - name: test_rule
     path: /api/test
-    limit: 10
-    window: 1m
+    params: ["10", "1m"]
     by: ip
 `
 	if _, err := tmpFile.WriteString(configContent); err != nil {
@@ -329,8 +328,7 @@ func BenchmarkLimiter_Check(b *testing.B) {
 		},
 		Global: &GlobalConfig{
 			Algorithm: "fixed_window",
-			Limit:     1000000,
-			Window:    "1s",
+			Params:    []string{"1000000", "1s"},
 		},
 	}
 
@@ -651,9 +649,16 @@ func TestAutoBanIP(t *testing.T) {
 			Algorithm: "fixed_window",
 			Enabled:   true,
 		},
-		Global: &GlobalConfig{
-			Limit:  1,
-			Window: "1m",
+		Rules: []RuleConfig{
+			{
+				Name:            "test-rule",
+				Path:            "/api/test",
+				By:              "ip",
+				Algorithm:       "fixed_window",
+				Params:          []string{"1", "1m"},
+				RecordViolation: true, // 记录违规
+				ViolationWeight: 1,    // 每次违规1分
+			},
 		},
 		AutoBan: AutoBanConfig{
 			Enabled:            true,
@@ -699,9 +704,16 @@ func TestAutoBanUser(t *testing.T) {
 			Algorithm: "fixed_window",
 			Enabled:   true,
 		},
-		Global: &GlobalConfig{
-			Limit:  1,
-			Window: "1m",
+		Rules: []RuleConfig{
+			{
+				Name:            "test-rule",
+				Path:            "/api/test",
+				By:              "user",
+				Algorithm:       "fixed_window",
+				Params:          []string{"1", "1m"},
+				RecordViolation: true, // 记录违规
+				ViolationWeight: 1,    // 每次违规1分
+			},
 		},
 		AutoBan: AutoBanConfig{
 			Enabled:            true,
@@ -744,9 +756,16 @@ func TestAutoBanMultipleDimensions(t *testing.T) {
 			Algorithm: "fixed_window",
 			Enabled:   true,
 		},
-		Global: &GlobalConfig{
-			Limit:  1,
-			Window: "1m",
+		Rules: []RuleConfig{
+			{
+				Name:            "test-rule",
+				Path:            "/api/test",
+				By:              "user",
+				Algorithm:       "fixed_window",
+				Params:          []string{"1", "1m"},
+				RecordViolation: true, // 记录违规
+				ViolationWeight: 1,    // 每次违规1分
+			},
 		},
 		AutoBan: AutoBanConfig{
 			Enabled:            true,

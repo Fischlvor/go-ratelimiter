@@ -23,23 +23,20 @@ whitelist:
 
 global:
   algorithm: sliding_window
-  limit: 1000
-  window: 60s
+  params: ["1000", "60s"]
 
 rules:
   - name: api_login
     path: /api/login
     method: POST
     algorithm: sliding_window
-    limit: 5
-    window: 60s
+    params: ["5", "60s"]
     by: ip
     
   - name: api_query
     path: /api/query
     algorithm: token_bucket
-    capacity: 100
-    rate: 10/s
+    params: ["100", "10/s"]
     by: user
 `
 
@@ -86,11 +83,14 @@ rules:
 	if config.Global == nil {
 		t.Fatal("Global config should not be nil")
 	}
-	if config.Global.Limit != 1000 {
-		t.Errorf("Global.Limit = %v, want 1000", config.Global.Limit)
+	if len(config.Global.Params) != 2 {
+		t.Errorf("len(Global.Params) = %v, want 2", len(config.Global.Params))
 	}
-	if config.Global.Window != "60s" {
-		t.Errorf("Global.Window = %v, want 60s", config.Global.Window)
+	if config.Global.Params[0] != "1000" {
+		t.Errorf("Global.Params[0] = %v, want 1000", config.Global.Params[0])
+	}
+	if config.Global.Params[1] != "60s" {
+		t.Errorf("Global.Params[1] = %v, want 60s", config.Global.Params[1])
 	}
 
 	// 验证规则
@@ -118,11 +118,14 @@ rules:
 	if rule2.Algorithm != "token_bucket" {
 		t.Errorf("Rules[1].Algorithm = %v, want token_bucket", rule2.Algorithm)
 	}
-	if rule2.Capacity != 100 {
-		t.Errorf("Rules[1].Capacity = %v, want 100", rule2.Capacity)
+	if len(rule2.Params) != 2 {
+		t.Errorf("len(Rules[1].Params) = %v, want 2", len(rule2.Params))
 	}
-	if rule2.Rate != "10/s" {
-		t.Errorf("Rules[1].Rate = %v, want 10/s", rule2.Rate)
+	if rule2.Params[0] != "100" {
+		t.Errorf("Rules[1].Params[0] = %v, want 100", rule2.Params[0])
+	}
+	if rule2.Params[1] != "10/s" {
+		t.Errorf("Rules[1].Params[1] = %v, want 10/s", rule2.Params[1])
 	}
 }
 
@@ -267,8 +270,7 @@ func TestValidateConfig(t *testing.T) {
 					Algorithm: "fixed_window",
 				},
 				Global: &GlobalConfig{
-					Limit:  0,
-					Window: "60s",
+					Params: []string{"0", "60s"},
 				},
 			},
 			wantErr: true,
@@ -280,8 +282,7 @@ func TestValidateConfig(t *testing.T) {
 					Algorithm: "fixed_window",
 				},
 				Global: &GlobalConfig{
-					Limit:  100,
-					Window: "",
+					Params: []string{"100", ""},
 				},
 			},
 			wantErr: true,
@@ -310,8 +311,7 @@ func TestRuleConfigValidation(t *testing.T) {
 				Name:      "test",
 				Path:      "/api/test",
 				Algorithm: "fixed_window",
-				Limit:     100,
-				Window:    "1s",
+				Params:    []string{"100", "1s"},
 				By:        "ip",
 			},
 			valid: true,
@@ -322,8 +322,7 @@ func TestRuleConfigValidation(t *testing.T) {
 				Name:      "test",
 				Path:      "/api/test",
 				Algorithm: "token_bucket",
-				Capacity:  100,
-				Rate:      "10/s",
+				Params:    []string{"100", "10/s"},
 				By:        "user",
 			},
 			valid: true,
@@ -333,8 +332,7 @@ func TestRuleConfigValidation(t *testing.T) {
 			ruleConfig: RuleConfig{
 				Name:      "test",
 				Algorithm: "fixed_window",
-				Limit:     100,
-				Window:    "1s",
+				Params:    []string{"100", "1s"},
 				By:        "ip",
 			},
 			valid: false,
@@ -426,8 +424,7 @@ func TestToRule(t *testing.T) {
 				Name:      "test",
 				Path:      "/api/test",
 				Algorithm: "fixed_window",
-				Limit:     10,
-				Window:    "1m",
+				Params:    []string{"10", "1m"},
 				By:        "ip",
 			},
 			wantError: false,
@@ -438,8 +435,7 @@ func TestToRule(t *testing.T) {
 				Name:      "test",
 				Path:      "/api/test",
 				Algorithm: "token_bucket",
-				Capacity:  100,
-				Rate:      "10/s",
+				Params:    []string{"100", "10/s"},
 				By:        "user",
 			},
 			wantError: false,
@@ -450,8 +446,7 @@ func TestToRule(t *testing.T) {
 				Name:      "test",
 				Path:      "/api/test",
 				Algorithm: "fixed_window",
-				Limit:     10,
-				Window:    "invalid",
+				Params:    []string{"10", "invalid"},
 				By:        "ip",
 			},
 			wantError: true,
@@ -462,8 +457,7 @@ func TestToRule(t *testing.T) {
 				Name:      "test",
 				Path:      "/api/test",
 				Algorithm: "token_bucket",
-				Capacity:  100,
-				Rate:      "invalid",
+				Params:    []string{"100", "invalid"},
 				By:        "user",
 			},
 			wantError: true,
@@ -478,4 +472,219 @@ func TestToRule(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLoadConfigWithDifferentAlgorithms 测试加载包含不同算法的配置文件
+func TestLoadConfigWithDifferentAlgorithms(t *testing.T) {
+	// 使用示例配置文件
+	config, err := LoadConfig("rate_limit.example.yaml")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	// 验证全局规则 - 滑动窗口
+	if config.Global == nil {
+		t.Fatal("Global config should not be nil")
+	}
+	if config.Global.Algorithm != "sliding_window" {
+		t.Errorf("Global.Algorithm = %v, want sliding_window", config.Global.Algorithm)
+	}
+	if len(config.Global.Params) != 2 {
+		t.Errorf("len(Global.Params) = %v, want 2", len(config.Global.Params))
+	}
+	if config.Global.Params[0] != "1000" {
+		t.Errorf("Global.Params[0] = %v, want 1000", config.Global.Params[0])
+	}
+	if config.Global.Params[1] != "1m" {
+		t.Errorf("Global.Params[1] = %v, want 1m", config.Global.Params[1])
+	}
+
+	// 验证规则数量（至少包含7个规则：4个算法示例 + 3个业务场景示例）
+	if len(config.Rules) < 7 {
+		t.Fatalf("len(Rules) = %v, want at least 7", len(config.Rules))
+	}
+
+	// 验证固定窗口规则
+	rule0 := config.Rules[0]
+	if rule0.Name != "登录限流-固定窗口" {
+		t.Errorf("Rules[0].Name = %v, want 登录限流-固定窗口", rule0.Name)
+	}
+	if rule0.Algorithm != "fixed_window" {
+		t.Errorf("Rules[0].Algorithm = %v, want fixed_window", rule0.Algorithm)
+	}
+	if len(rule0.Params) != 2 || rule0.Params[0] != "10" || rule0.Params[1] != "1m" {
+		t.Errorf("Rules[0].Params = %v, want [\"10\", \"1m\"]", rule0.Params)
+	}
+	if !rule0.RecordViolation {
+		t.Error("Rules[0].RecordViolation should be true")
+	}
+	if rule0.ViolationWeight != 3 {
+		t.Errorf("Rules[0].ViolationWeight = %v, want 3", rule0.ViolationWeight)
+	}
+
+	// 验证滑动窗口规则
+	rule1 := config.Rules[1]
+	if rule1.Name != "注册限流-滑动窗口" {
+		t.Errorf("Rules[1].Name = %v, want 注册限流-滑动窗口", rule1.Name)
+	}
+	if rule1.Algorithm != "sliding_window" {
+		t.Errorf("Rules[1].Algorithm = %v, want sliding_window", rule1.Algorithm)
+	}
+	if len(rule1.Params) != 2 || rule1.Params[0] != "5" || rule1.Params[1] != "5m" {
+		t.Errorf("Rules[1].Params = %v, want [\"5\", \"5m\"]", rule1.Params)
+	}
+
+	// 验证令牌桶规则
+	rule2 := config.Rules[2]
+	if rule2.Name != "上传限流-令牌桶" {
+		t.Errorf("Rules[2].Name = %v, want 上传限流-令牌桶", rule2.Name)
+	}
+	if rule2.Algorithm != "token_bucket" {
+		t.Errorf("Rules[2].Algorithm = %v, want token_bucket", rule2.Algorithm)
+	}
+	if len(rule2.Params) != 2 || rule2.Params[0] != "10" || rule2.Params[1] != "1/s" {
+		t.Errorf("Rules[2].Params = %v, want [\"10\", \"1/s\"]", rule2.Params)
+	}
+
+	// 验证使用默认算法的规则
+	rule3 := config.Rules[3]
+	if rule3.Name != "文章列表-默认算法" {
+		t.Errorf("Rules[3].Name = %v, want 文章列表-默认算法", rule3.Name)
+	}
+	if rule3.Algorithm != "" {
+		t.Errorf("Rules[3].Algorithm = %v, want empty (use default)", rule3.Algorithm)
+	}
+	if len(rule3.Params) != 2 || rule3.Params[0] != "60" || rule3.Params[1] != "1m" {
+		t.Errorf("Rules[3].Params = %v, want [\"60\", \"1m\"]", rule3.Params)
+	}
+	if rule3.RecordViolation {
+		t.Error("Rules[3].RecordViolation should be false")
+	}
+
+	// 验证自动拉黑配置
+	if !config.AutoBan.Enabled {
+		t.Error("AutoBan.Enabled should be true")
+	}
+	if config.AutoBan.ViolationThreshold != 10 {
+		t.Errorf("AutoBan.ViolationThreshold = %v, want 10", config.AutoBan.ViolationThreshold)
+	}
+
+	t.Log("✅ 配置文件加载成功，所有算法参数正确")
+}
+
+// TestRuleConversionWithDifferentAlgorithms 测试不同算法的规则转换
+func TestRuleConversionWithDifferentAlgorithms(t *testing.T) {
+	// 加载配置
+	config, err := LoadConfig("rate_limit.example.yaml")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	// 转换规则
+	defaultAlgo := Algorithm(config.Default.Algorithm)
+
+	// 测试固定窗口规则转换
+	t.Run("固定窗口规则转换", func(t *testing.T) {
+		rule, err := config.Rules[0].ToRule(defaultAlgo)
+		if err != nil {
+			t.Fatalf("ToRule() error = %v", err)
+		}
+
+		if rule.Algorithm != AlgorithmFixedWindow {
+			t.Errorf("Algorithm = %v, want %v", rule.Algorithm, AlgorithmFixedWindow)
+		}
+		if rule.Limit != 10 {
+			t.Errorf("Limit = %v, want 10", rule.Limit)
+		}
+		if rule.Window != time.Minute {
+			t.Errorf("Window = %v, want %v", rule.Window, time.Minute)
+		}
+		if rule.Capacity != 0 {
+			t.Errorf("Capacity should be 0 for fixed_window, got %v", rule.Capacity)
+		}
+		if rule.Rate != 0 {
+			t.Errorf("Rate should be 0 for fixed_window, got %v", rule.Rate)
+		}
+		if !rule.RecordViolation {
+			t.Error("RecordViolation should be true")
+		}
+		if rule.ViolationWeight != 3 {
+			t.Errorf("ViolationWeight = %v, want 3", rule.ViolationWeight)
+		}
+	})
+
+	// 测试滑动窗口规则转换
+	t.Run("滑动窗口规则转换", func(t *testing.T) {
+		rule, err := config.Rules[1].ToRule(defaultAlgo)
+		if err != nil {
+			t.Fatalf("ToRule() error = %v", err)
+		}
+
+		if rule.Algorithm != AlgorithmSlidingWindow {
+			t.Errorf("Algorithm = %v, want %v", rule.Algorithm, AlgorithmSlidingWindow)
+		}
+		if rule.Limit != 5 {
+			t.Errorf("Limit = %v, want 5", rule.Limit)
+		}
+		if rule.Window != 5*time.Minute {
+			t.Errorf("Window = %v, want %v", rule.Window, 5*time.Minute)
+		}
+		if rule.Capacity != 0 {
+			t.Errorf("Capacity should be 0 for sliding_window, got %v", rule.Capacity)
+		}
+		if rule.Rate != 0 {
+			t.Errorf("Rate should be 0 for sliding_window, got %v", rule.Rate)
+		}
+	})
+
+	// 测试令牌桶规则转换
+	t.Run("令牌桶规则转换", func(t *testing.T) {
+		rule, err := config.Rules[2].ToRule(defaultAlgo)
+		if err != nil {
+			t.Fatalf("ToRule() error = %v", err)
+		}
+
+		if rule.Algorithm != AlgorithmTokenBucket {
+			t.Errorf("Algorithm = %v, want %v", rule.Algorithm, AlgorithmTokenBucket)
+		}
+		if rule.Capacity != 10 {
+			t.Errorf("Capacity = %v, want 10", rule.Capacity)
+		}
+		if rule.Rate != 1.0 {
+			t.Errorf("Rate = %v, want 1.0", rule.Rate)
+		}
+		// 令牌桶算法不使用Limit和Window
+		if rule.Limit != 0 {
+			t.Errorf("Limit should be 0 for token_bucket, got %v", rule.Limit)
+		}
+		if rule.Window != 0 {
+			t.Errorf("Window should be 0 for token_bucket, got %v", rule.Window)
+		}
+	})
+
+	// 测试使用默认算法的规则转换
+	t.Run("默认算法规则转换", func(t *testing.T) {
+		rule, err := config.Rules[3].ToRule(defaultAlgo)
+		if err != nil {
+			t.Fatalf("ToRule() error = %v", err)
+		}
+
+		if rule.Algorithm != defaultAlgo {
+			t.Errorf("Algorithm = %v, want %v (default)", rule.Algorithm, defaultAlgo)
+		}
+		if rule.Limit != 60 {
+			t.Errorf("Limit = %v, want 60", rule.Limit)
+		}
+		if rule.Window != time.Minute {
+			t.Errorf("Window = %v, want %v", rule.Window, time.Minute)
+		}
+		if rule.RecordViolation {
+			t.Error("RecordViolation should be false")
+		}
+		if rule.ViolationWeight != 0 {
+			t.Errorf("ViolationWeight = %v, want 0", rule.ViolationWeight)
+		}
+	})
+
+	t.Log("✅ 所有规则转换成功，参数设置正确")
 }

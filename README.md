@@ -51,8 +51,8 @@ default:
   enabled: true
 
 global:
-  limit: 1000
-  window: 60s
+  algorithm: fixed_window
+  params: ["1000", "60s"]  # [limit, window]
 
 rules:
   - name: "登录限流"
@@ -60,8 +60,7 @@ rules:
     method: POST
     by: ip
     algorithm: sliding_window
-    limit: 5
-    window: 60s
+    params: ["5", "60s"]  # [limit, window] 每分钟最多5次
 ```
 
 ### 2. 基础使用
@@ -126,25 +125,33 @@ default:
 
 ```yaml
 global:
-  limit: 1000      # 限流阈值（请求数）
-  window: 60s      # 时间窗口（支持: s秒, m分钟, h小时）
-  algorithm: ""    # 算法（可选，不指定则使用默认算法）
+  algorithm: sliding_window  # 算法（可选，不指定则使用默认算法）
+  params: ["1000", "60s"]    # 算法参数数组
+  # - fixed_window/sliding_window: [limit, window]
+  # - token_bucket: [capacity, rate]
 ```
 
 ### 限流规则
 
+#### 固定窗口 / 滑动窗口算法
+
 ```yaml
 rules:
   - name: "规则名称"
-    path: /api/path        # 路径（支持通配符 *）
-    method: POST           # HTTP方法（可选，为空表示所有方法）
-    by: ip                 # 限流维度: ip | user | path | global
-    algorithm: fixed_window # 算法（可选，不指定则使用默认算法）
-    limit: 100             # 限流阈值
-    window: 60s            # 时间窗口
+    path: /api/path              # 路径（支持通配符 *）
+    method: POST                 # HTTP方法（可选，为空表示所有方法）
+    by: ip                       # 限流维度: ip | user | path | global
+    algorithm: fixed_window      # 算法（可选，不指定则使用默认算法）
+    params: ["100", "60s"]       # [limit, window] 限流阈值和时间窗口
+    record_violation: true       # 是否记录违规（用于自动拉黑）
+    violation_weight: 1          # 违规权重（默认1）
 ```
 
-### 令牌桶算法配置
+**参数说明：**
+- `params[0]`: 限流阈值（请求数）
+- `params[1]`: 时间窗口（支持: s秒, m分钟, h小时）
+
+#### 令牌桶算法
 
 ```yaml
 rules:
@@ -152,9 +159,14 @@ rules:
     path: /api/upload/*
     by: user
     algorithm: token_bucket
-    capacity: 10    # 桶容量
-    rate: 1/s       # 令牌生成速率（支持: /s, /m, /h）
+    params: ["10", "1/s"]        # [capacity, rate] 桶容量和令牌生成速率
+    record_violation: true
+    violation_weight: 2
 ```
+
+**参数说明：**
+- `params[0]`: 桶容量（令牌数）
+- `params[1]`: 令牌生成速率（支持: /s, /m, /h）
 
 ### 白名单
 
@@ -186,16 +198,28 @@ auto_ban:
   dimensions:                    # 拉黑维度
     - ip                         # 按IP自动拉黑
     - user                       # 按用户自动拉黑
-  violation_threshold: 10        # 违规次数阈值
+  violation_threshold: 10        # 违规分数阈值
   violation_window: 5m           # 违规统计时间窗口
   ban_duration: 1h               # 封禁时长
 ```
 
 **工作原理：**
-- 当请求被限流拒绝时，记录违规次数
-- 在 `violation_window` 时间内累计违规次数
+- 当请求被限流拒绝时，根据规则的 `record_violation` 配置决定是否记录违规
+- 每次违规累计 `violation_weight` 分数（支持不同规则设置不同权重）
+- 在 `violation_window` 时间内累计违规分数
 - 达到 `violation_threshold` 阈值后，自动加入黑名单
 - 黑名单有效期为 `ban_duration`
+
+**违规权重示例：**
+```yaml
+rules:
+  - name: "登录限流"
+    violation_weight: 3    # 登录失败权重高（触发1次=3分）
+  - name: "搜索限流"
+    violation_weight: 1    # 搜索失败权重低（触发1次=1分）
+```
+
+例如：登录限流触发3次(3×3=9分) + 搜索限流触发2次(2×1=2分) = 11分 → 达到阈值10分 → 自动拉黑
 
 ### 检查优先级
 
@@ -299,9 +323,10 @@ store := ratelimiter.NewRedisStore(redisClient, "prefix")
   path: /api/auth/login
   method: POST
   by: ip
-  algorithm: sliding_window  # 使用滑动窗口，精确控制
-  limit: 5
-  window: 60s
+  algorithm: sliding_window    # 使用滑动窗口，精确控制
+  params: ["5", "60s"]         # 每分钟最多5次
+  record_violation: true       # 记录违规
+  violation_weight: 3          # 高权重（重要接口）
 ```
 
 ### 注册接口
@@ -311,8 +336,9 @@ store := ratelimiter.NewRedisStore(redisClient, "prefix")
   method: POST
   by: ip
   algorithm: sliding_window
-  limit: 3
-  window: 300s  # 5分钟3次，严格限制
+  params: ["3", "300s"]        # 5分钟3次，严格限制
+  record_violation: true
+  violation_weight: 3
 ```
 
 ### 验证码接口
@@ -320,8 +346,9 @@ store := ratelimiter.NewRedisStore(redisClient, "prefix")
 - name: "验证码限流"
   path: /api/captcha
   by: ip
-  limit: 10
-  window: 60s
+  params: ["10", "60s"]
+  record_violation: true
+  violation_weight: 2
 ```
 
 ### 上传接口
@@ -329,9 +356,10 @@ store := ratelimiter.NewRedisStore(redisClient, "prefix")
 - name: "上传限流"
   path: /api/upload/*
   by: user
-  algorithm: token_bucket  # 使用令牌桶，允许突发
-  capacity: 10
-  rate: 1/s
+  algorithm: token_bucket      # 使用令牌桶，允许突发
+  params: ["10", "1/s"]        # 桶容量10，每秒1个令牌
+  record_violation: true
+  violation_weight: 2
 ```
 
 ### 搜索接口
@@ -340,8 +368,9 @@ store := ratelimiter.NewRedisStore(redisClient, "prefix")
   path: /api/search
   by: ip
   algorithm: sliding_window
-  limit: 20
-  window: 60s
+  params: ["20", "60s"]
+  record_violation: true
+  violation_weight: 1          # 低权重（普通接口）
 ```
 
 ## 🛠️ 依赖

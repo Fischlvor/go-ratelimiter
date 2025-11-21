@@ -8,107 +8,89 @@ default:
   enabled: true
 
 # 全局限流（可选）
+# 注意：全局限流触发不会记录违规（因为不是用户/IP的问题）
 global:
-  # 限流阈值（请求数）
-  limit: 1000
-  # 时间窗口（支持: s秒, m分钟, h小时）
-  window: 60s
-  # 算法（可选，不指定则使用默认算法）
-  algorithm: fixed_window
+  algorithm: sliding_window
+  # 算法参数数组
+  # - fixed_window/sliding_window: [limit, window]  例如: ["1000", "60s"]
+  # - token_bucket: [capacity, rate]  例如: ["10", "1/s"]
+  params: ["1000", "1m"]  # 每分钟1000次
 
 # 限流规则列表（按顺序匹配）
+# 以下展示了三种算法的使用方式
 rules:
-  # 登录接口 - 严格限流，防止暴力破解
-  - name: "登录限流"
-    path: /api/auth/login
-    method: POST
-    by: ip                    # 限流维度: ip | user | path | global
-    algorithm: sliding_window # 使用滑动窗口，更精确
-    limit: 5                  # 每分钟最多5次
-    window: 60s
-
-  # 注册接口 - 防止恶意注册
-  - name: "注册限流"
-    path: /api/auth/register
+  # ==================== 算法示例 ====================
+  
+  # 示例1: 固定窗口算法 (fixed_window)
+  # 适用场景: 简单的时间窗口限流，性能最好
+  - name: "登录限流-固定窗口"
+    path: /api/user/login
     method: POST
     by: ip
-    algorithm: sliding_window
-    limit: 3
-    window: 300s              # 5分钟3次
+    algorithm: fixed_window
+    params: ["10", "1m"]        # [limit, window] 每分钟最多10次
+    record_violation: true
+    violation_weight: 3
 
-  # 验证码接口 - 防止刷验证码
-  - name: "验证码限流"
-    path: /api/base/captcha
-    method: GET
-    by: ip
-    limit: 10
-    window: 60s
-
-  # 发送邮件验证码 - 严格限制
-  - name: "邮件验证码限流"
-    path: /api/auth/sendEmailVerificationCode
+  # 示例2: 滑动窗口算法 (sliding_window)
+  # 适用场景: 需要更精确的限流控制，避免突刺流量
+  - name: "注册限流-滑动窗口"
+    path: /api/user/register
     method: POST
     by: ip
     algorithm: sliding_window
-    limit: 3
-    window: 300s
+    params: ["5", "5m"]         # [limit, window] 5分钟最多5次
+    record_violation: true
+    violation_weight: 3
 
-  # 密码重置 - 防止滥用
-  - name: "密码重置限流"
-    path: /api/auth/forgotPassword
-    method: POST
-    by: ip
-    limit: 3
-    window: 3600s             # 1小时3次
-
-  # 用户API - 按用户限流
-  - name: "用户API限流"
-    path: /api/user/*
-    by: user                  # 按用户限流
-    limit: 100
-    window: 60s
-
-  # 文章列表 - 按IP限流
-  - name: "文章列表限流"
-    path: /api/article/list
-    method: GET
-    by: ip
-    limit: 60
-    window: 60s
-
-  # 文章搜索 - 消耗资源大，严格限制
-  - name: "文章搜索限流"
-    path: /api/article/search
-    method: GET
-    by: ip
-    algorithm: sliding_window
-    limit: 20
-    window: 60s
-
-  # 上传接口 - 使用令牌桶，允许突发
-  - name: "上传限流"
+  # 示例3: 令牌桶算法 (token_bucket)
+  # 适用场景: 允许短时突发流量，但长期平均速率受限
+  - name: "上传限流-令牌桶"
     path: /api/upload/*
     method: POST
     by: user
     algorithm: token_bucket
-    capacity: 10              # 桶容量10个令牌
-    rate: 1/s                 # 每秒生成1个令牌
+    params: ["10", "1/s"]       # [capacity, rate] 桶容量10，每秒1个令牌
+    record_violation: true
+    violation_weight: 2
 
-  # 评论发布 - 防止刷评论
-  - name: "评论限流"
-    path: /api/comment/add
-    method: POST
-    by: user
-    algorithm: sliding_window
-    limit: 10
-    window: 300s              # 5分钟10条
+  # 示例4: 使用默认算法（不指定algorithm字段）
+  - name: "文章列表-默认算法"
+    path: /api/article/list
+    method: GET
+    by: ip
+    params: ["60", "1m"]
+    record_violation: false     # 不记录违规（正常浏览行为）
+    violation_weight: 0
 
-  # OAuth回调 - 防止滥用
+  # ==================== 其他业务场景示例 ====================
+  
+  # 按用户限流示例 - 用户API
+  - name: "用户API限流"
+    path: /api/user/*
+    # method: 不指定，表示匹配所有方法（GET/POST/PUT/DELETE等）
+    by: user                    # 按用户ID限流
+    params: ["100", "60s"]
+    record_violation: false     # 不记录违规（正常用户可能高频使用）
+    violation_weight: 0
+
+  # 不记录违规示例 - 文章列表
+  - name: "文章列表限流"
+    path: /api/article/list
+    method: GET
+    by: ip
+    params: ["60", "60s"]
+    record_violation: false     # 不记录违规（正常浏览行为）
+    violation_weight: 0
+
+  # 通配符路径示例 - OAuth回调
   - name: "OAuth回调限流"
     path: /api/auth/oauth/*/callback
+    # method: 不指定，表示匹配所有方法（GET/POST/PUT/DELETE等）
     by: ip
-    limit: 10
-    window: 60s
+    params: ["10", "60s"]
+    record_violation: true
+    violation_weight: 1
 
 # 白名单配置
 whitelist:
@@ -145,11 +127,19 @@ auto_ban:
     - ip      # 按IP自动拉黑
     - user    # 按用户自动拉黑
   
-  # 违规次数阈值（达到此次数自动拉黑）
+  # 违规分数阈值（达到此分数自动拉黑）
+  # 注意：这是累计分数，不同规则的violation_weight不同
+  # 例如：登录限流触发3次(3×3=9分) + 搜索限流触发2次(2×1=2分) = 11分 → 拉黑
   violation_threshold: 10
   
-  # 违规统计时间窗口（在此时间内累计违规次数）
+  # 违规统计时间窗口（在此时间内累计违规分数）
   violation_window: 5m
   
   # 封禁时长（自动拉黑后的封禁时间）
   ban_duration: 1h
+  
+  # 说明：
+  # - 全局限流触发不会记录违规（因为不是用户/IP的问题）
+  # - 规则限流根据record_violation配置决定是否记录违规
+  # - 违规分数 = Σ(触发次数 × violation_weight)
+  # - 敏感接口（登录/注册）权重高(3分)，普通接口权重低(1分)
